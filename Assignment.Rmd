@@ -1,0 +1,129 @@
+---
+title: "Practical Machine Learning - Course Assignment"
+author: "Alex Zukowsky"
+date: "January 30, 2016"
+output: html_document
+---
+
+In this project, my goal will be to use data from accelerometers on the belt,
+forearm, arm, and dumbell of 6 participants. They were asked to perform barbell 
+lifts correctly and incorrectly in 5 different ways.
+
+I will be required to predict the manner in which they did the exercise 'classe
+variable'.  I can use any of the other variables to predict with and should include
+how I build the model, how I used cross validation, what I think the expected out
+of sample error is, and why I made the choices I did.  I will then use the model
+to predict 20 different test cases.
+
+First I started by loading the necessary libraries and the data sets.
+I assigned the full data set to the dataframe 'FullData' and the 20 test cases
+to the dataframe 'FINALTest'.
+
+```{r}
+library(AppliedPredictiveModeling)
+library(caret)
+library(ElemStatLearn)
+
+FullData <- read.csv("pml-training.csv", header = TRUE)
+FINALTest <- read.csv("pml-testing.csv", header = TRUE)
+```
+
+This started me out with a data set containing a rather large number of variables
+(160).  I did an initial view of the data set and discovered that there were
+several variables that were either mostly null or mostly NA.  For that reason I 
+then ran some code that removed any variable with 90% or more NA or NULL using the
+following code:
+
+```{r}
+## Remove columns with 90% NA values
+FullDataTRIM <- FullData[,colSums(is.na(FullData))<0.9*nrow(FullData)]
+
+## Remove columns with 90% NULL values
+FullDataTRIM <- FullDataTRIM[,colSums(FullDataTRIM =="")<0.9*nrow(FullDataTRIM)]
+```
+
+This initial cleanup brought me down from 160 variables to just 60.
+
+Next I set my seed (for reproducability) and broke up my data set into a training
+and a testing set.
+
+```{r}
+## Break up our full data set into training/testing
+inTrain = createDataPartition(FullDataTRIM$classe, p=3/4)[[1]]
+training = FullDataTRIM[inTrain,]
+testing = FullDataTRIM[-inTrain,]
+```
+
+I then reviewed the data set once more to remove variables that, logically, would
+have no value (name, time, etc.).
+
+```{r}
+training <- training[ , -which(names(training) %in% c("X", "user_name",
+                          "raw_timestamp_part_1", "raw_timestamp_part_2",
+                          "cvtd_timestamp", "new_window", "num_window"))]
+```
+
+This next but of cleanup left me with just 53 variables.
+
+I then reviewed the remaining variables for possible outliers or variables with
+little or no variability (there were none).
+
+```{r eval=FALSE}
+## Review remaining variables for possible outliers
+summary(training)
+
+## Look for variables with little or no variability
+nsv <- nearZeroVar(training,saveMetrics = T)
+nsv
+```
+
+I then looked at correlated variables (correlation > 0.9) and plotted a few of
+them (just a sample of the plots below).
+
+```{r}
+## Look for correlated predictors
+M <- abs(cor(training[,-53]))
+diag(M) <- 0
+which(M > 0.9, arr.ind = T)
+
+## Plot correlated predictors
+plot(training$accel_belt_y, training$roll_belt, col=training$classe)
+plot(training$total_accel_belt, training$roll_belt, col=training$classe)
+```
+
+Recognizing that there were some correlated variables I then did some preprocessing
+to possibly further reduce the number of variables using a threshold of 95%.
+
+```{r}
+## Do some preprocessing of the data
+preProcPC <- preProcess((training[,-53]+1),method="pca",thresh = 0.95)
+trainingPC <- predict(preProcPC,training[,-53]+1)
+```
+
+This left me with just 26 variables.
+I then applyed the same preprocessing to the test set.
+
+```{r}
+## Apply the preprocessing to the test set
+testingPC <- predict(preProcPC,(testing[,-60]+1))
+```
+
+I then built a random forest model and cross validated it to the testing set.
+Then I reviewed the confusion matrix.
+
+```{r eval=FALSE}
+## eval=FALSE as it took a while for the model to run
+## Fit a random forest model
+modelFitRF <- train(training$classe ~ ., method="rf", data=trainingPC)
+confusionMatrix(testing$classe,predict(modelFitRF,testingPC))
+```
+
+Satisfied with the outcome (98% sample error rate) I then accepted my model and
+applied it to the 20 test values for submission
+
+```{r eval=FALSE}
+## Apply model to 20 test cases
+FINALTestPC <- predict(preProcPC,(FINALTest[,]+1))
+predictions <- predict(modelFitRF,newdata = FINALTestPC, interval="prediction")
+```
+
